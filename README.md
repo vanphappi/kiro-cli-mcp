@@ -30,26 +30,28 @@ Kiro CLI MCP Server bridges the gap between IDE agents and kiro-cli by providing
 
 ## Installation
 
-### Via pip
-```bash
-pip install kiro-cli-mcp
-```
+### Prerequisites
+- Python 3.10+
+- kiro-cli installed and available in PATH (for full functionality - uses mock mode if unavailable)
 
-### Via uvx (recommended)
-```bash
-uvx install kiro-cli-mcp
-```
-
-### From source
+### From Source (Current Method)
 ```bash
 git clone https://github.com/your-org/kiro-cli-mcp.git
 cd kiro-cli-mcp
 pip install -e .
 ```
 
-### Requirements
-- Python 3.10+
-- kiro-cli (optional - uses mock mode if unavailable)
+### Via pip (After PyPI Publication)
+```bash
+# Will be available after publishing to PyPI
+pip install kiro-cli-mcp
+```
+
+### Via uvx (After PyPI Publication)
+```bash
+# Will be available after publishing to PyPI
+uvx install kiro-cli-mcp
+```
 
 ## Configuration
 
@@ -98,12 +100,20 @@ Add to your IDE's MCP configuration file:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `KIRO_MCP_CLI_PATH` | Path to kiro-cli executable | `kiro-cli` |
-| `KIRO_MCP_COMMAND_TIMEOUT` | Command timeout (seconds) | `300` |
+| `KIRO_MCP_COMMAND_TIMEOUT` | Command timeout (seconds) - IDE-optimized | `30` |
 | `KIRO_MCP_MAX_SESSIONS` | Maximum concurrent sessions | `10` |
-| `KIRO_MCP_SESSION_TIMEOUT` | Session idle timeout (seconds) | `3600` |
+| `KIRO_MCP_SESSION_TIMEOUT` | Session idle timeout (seconds) | `300` |
+| `KIRO_MCP_CLEANUP_INTERVAL` | Session cleanup check interval (seconds) | `30` |
+| `KIRO_MCP_LOG_LEVEL` | Logging level | `INFO` |
+| `KIRO_MCP_DEFAULT_MODEL` | Default AI model for kiro-cli | `claude-opus-4.5` |
+| `KIRO_MCP_DEFAULT_AGENT` | Default agent to use | `kiro_default` |
+| `KIRO_MCP_LOG_RESPONSE` | Log full CLI responses for debugging | `true` |
 | `KIRO_MCP_POOL_SIZE` | Process pool size | `5` |
 | `KIRO_MCP_POOL_ENABLED` | Enable process pooling | `true` |
-| `KIRO_MCP_LOG_LEVEL` | Logging level | `INFO` |
+| `KIRO_MCP_POOL_IDLE_TIME` | Process idle time before recycling (seconds) | `300` |
+| `KIRO_MCP_POOL_MAX_USES` | Max uses per process before recycling | `100` |
+| `KIRO_MCP_MAX_ASYNC_TASKS` | Maximum concurrent async tasks | `100` |
+| `KIRO_MCP_TASK_TTL` | Task result TTL (seconds) | `3600` |
 
 ## Available MCP Tools
 
