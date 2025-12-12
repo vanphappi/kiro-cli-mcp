@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
-    { name = "Developer", email = "dev@example.com" }
+    { name = "Kiro CLI MCP Contributors", email = "contributors@kiro-cli-mcp.dev" }
 ]
 keywords = ["mcp", "kiro", "cli", "ai", "assistant"]
 classifiers = [
@@ -42,8 +42,10 @@ dev = [
 kiro-cli-mcp = "kiro_cli_mcp.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/example/kiro-cli-mcp"
-Repository = "https://github.com/example/kiro-cli-mcp"
+Homepage = "https://github.com/vanphappi/kiro-cli-mcp"
+Repository = "https://github.com/vanphappi/kiro-cli-mcp"
+Issues = "https://github.com/vanphappi/kiro-cli-mcp/issues"
+Documentation = "https://github.com/vanphappi/kiro-cli-mcp#readme"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kiro_cli_mcp"]
