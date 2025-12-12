@@ -1,0 +1,68 @@
+{
+  "mcpServers": {
+    "kiro-cli-mcp": {
+      "command": "python",
+      "args": ["-m", "kiro_cli_mcp"],
+      "env": {
+        "_comment_1": "=== LOGGING ===",
+        "KIRO_MCP_LOG_LEVEL": "INFO",
+        "_comment_log_level": "Options: DEBUG, INFO, WARNING, ERROR, CRITICAL",
+        
+        "_comment_2": "=== TIMEOUTS ===",
+        "KIRO_MCP_COMMAND_TIMEOUT": "0",
+        "_comment_timeout": "Seconds to wait for kiro-cli response (0 = unlimited)",
+        
+        "_comment_3": "=== SESSION MANAGEMENT ===",
+        "KIRO_MCP_MAX_SESSIONS": "0",
+        "_comment_max_sessions": "Max concurrent sessions (0 = unlimited)",
+        "KIRO_MCP_SESSION_TIMEOUT": "600",
+        "_comment_session_timeout": "Seconds before inactive session is cleaned up",
+        "KIRO_MCP_CLEANUP_INTERVAL": "30",
+        "_comment_cleanup": "Seconds between cleanup checks",
+        
+        "_comment_4": "=== KIRO-CLI DEFAULTS ===",
+        "KIRO_MCP_DEFAULT_MODEL": "claude-sonnet-4.5",
+        "_comment_model": "Options: claude-opus-4.5, claude-sonnet-4.5, auto",
+        "KIRO_MCP_DEFAULT_AGENT": "kiro_default",
+        "_comment_agent": "Default agent name or empty for none",
+        "KIRO_MCP_LOG_RESPONSE": "true",
+        "_comment_log_response": "Log full CLI response for debugging",
+        
+        "_comment_5": "=== PROCESS POOL (Performance) ===",
+        "KIRO_MCP_POOL_ENABLED": "true",
+        "_comment_pool_enabled": "Enable process reuse for faster responses",
+        "KIRO_MCP_POOL_SIZE": "5",
+        "_comment_pool_size": "Max pooled processes",
+        "KIRO_MCP_POOL_IDLE_TIME": "300",
+        "_comment_pool_idle": "Seconds before idle process is recycled",
+        "KIRO_MCP_POOL_MAX_USES": "100",
+        "_comment_pool_uses": "Max uses per process before recycling",
+        
+        "_comment_6": "=== ASYNC TASKS (Streaming) ===",
+        "KIRO_MCP_MAX_ASYNC_TASKS": "100",
+        "_comment_max_tasks": "Max concurrent async chat tasks",
+        "KIRO_MCP_TASK_TTL": "3600",
+        "_comment_task_ttl": "Seconds to keep completed task results"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "kiro_chat",
+        "kiro_chat_async",
+        "kiro_session_create",
+        "kiro_session_list",
+        "kiro_session_switch",
+        "kiro_session_end",
+        "kiro_session_clear",
+        "kiro_session_save",
+        "kiro_command",
+        "kiro_agents_list",
+        "kiro_history",
+        "kiro_history_clear",
+        "kiro_task_status",
+        "kiro_task_cancel",
+        "kiro_task_list",
+        "kiro_pool_stats"
+      ]
+    }
+  }
+}
