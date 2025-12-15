@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+import psutil
+
 from .config import ServerConfig
 from .errors import SessionError, ErrorCode, ConcurrencyError
 from .models import SessionInfo, HistoryMessage
@@ -20,19 +22,92 @@ logger = logging.getLogger(__name__)
 # Check if we're on Unix-like system (for process group support)
 IS_UNIX = sys.platform != 'win32'
 
+# MCP tool patterns for orphan detection
+MCP_TOOL_PATTERNS = [
+    'auggie --mcp',
+    'node.*--mcp',
+    'python.*--mcp',
+    '--mcp',  # Generic MCP flag
+]
+
 # Global registry to track all running processes for cleanup
 _active_processes: set[asyncio.subprocess.Process] = set()
 _session_managers: list["SessionManager"] = []
 _cleanup_tasks: list[asyncio.Task] = []
 
 
-def _cleanup_all_processes():
-    """Cleanup all running processes on exit.
+def _is_descendant_of(child_pid: int, ancestor_pid: int) -> bool:
+    """Check if child_pid is a descendant of ancestor_pid."""
+    try:
+        child = psutil.Process(child_pid)
+        for parent in child.parents():
+            if parent.pid == ancestor_pid:
+                return True
+        return False
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
 
-    This function is called on exit to ensure all kiro-cli processes
-    and their children (MCP servers, etc.) are properly terminated.
+
+def _kill_orphaned_mcp_processes_shell(verbose: bool = False) -> int:
+    """Shell-based orphan cleanup as additional safety layer.
+    
+    Args:
+        verbose: If True, log even when no orphans found
+        
+    Returns:
+        Number of orphaned processes killed
     """
-    logger.info("🧹 Cleaning up all kiro-cli processes...")
+    if not IS_UNIX:
+        return 0  # Only run on Unix systems
+    
+    if verbose:
+        logger.info("🔍 Shell cleanup: Checking for orphaned MCP processes...")
+    
+    try:
+        import subprocess
+        
+        # Find orphaned MCP processes using shell command
+        cmd = "ps -eo pid,ppid,command | awk '$2==1 && /auggie --mcp|node.*--mcp/ {print $1}'"
+        result = subprocess.run(
+            cmd, 
+            shell=True, 
+            capture_output=True, 
+            text=True, 
+            timeout=10.0
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            pids = result.stdout.strip().split('\n')
+            killed_count = 0
+            
+            for pid_str in pids:
+                try:
+                    pid = int(pid_str.strip())
+                    os.kill(pid, signal.SIGKILL)
+                    killed_count += 1
+                    logger.info(f"🧹 Shell cleanup killed orphaned MCP process: {pid}")
+                except (ValueError, ProcessLookupError, PermissionError):
+                    pass
+            
+            if killed_count > 0:
+                logger.info(f"✅ Shell cleanup killed {killed_count} orphaned MCP processes")
+            
+            return killed_count
+        
+        return 0  # No orphans found
+                
+    except Exception as e:
+        logger.debug(f"Shell-based orphan cleanup failed: {e}")
+        return 0
+
+
+def _cleanup_all_processes():
+    """Enhanced cleanup for all processes including orphaned MCP subprocesses.
+
+    This function ensures all kiro-cli processes and their descendants
+    (including MCP servers like auggie) are properly terminated.
+    """
+    logger.info("🧹 Enhanced cleanup: discovering all descendant processes...")
 
     # Cancel all cleanup tasks
     for task in _cleanup_tasks:
@@ -50,59 +125,90 @@ def _cleanup_all_processes():
             logger.warning(f"   Failed to cleanup session manager: {e}")
     _session_managers.clear()
 
-    # Terminate all processes and their children
+    # Step 1: Terminate registered processes with their full process trees
     for proc in list(_active_processes):
         try:
             if proc.returncode is None:
                 pid = proc.pid
-                logger.info(f"   Terminating process {pid}")
-
-                if IS_UNIX:
-                    # Try to kill process group first
-                    try:
-                        pgid = os.getpgid(pid)
-                        logger.debug(f"   Killing process group {pgid}")
-                        os.killpg(pgid, signal.SIGTERM)
-                    except (ProcessLookupError, PermissionError):
-                        # Fall back to killing just the process
-                        proc.terminate()
-                else:
-                    # Windows: terminate the process
-                    proc.terminate()
+                logger.info(f"   Terminating registered process {pid}")
+                
+                # Use psutil to kill entire process tree
+                try:
+                    parent = psutil.Process(pid)
+                    children = parent.children(recursive=True)
+                    all_procs = children + [parent]
+                    
+                    # Graceful termination
+                    for p in all_procs:
+                        try:
+                            p.terminate()
+                        except psutil.NoSuchProcess:
+                            pass
+                    
+                    # Wait and force kill if needed
+                    gone, alive = psutil.wait_procs(all_procs, timeout=2.0)
+                    for p in alive:
+                        try:
+                            p.kill()
+                        except psutil.NoSuchProcess:
+                            pass
+                            
+                except psutil.NoSuchProcess:
+                    pass
+                except Exception as e:
+                    logger.warning(f"   psutil cleanup failed for {pid}: {e}")
+                    # Fallback to original method
+                    if IS_UNIX:
+                        try:
+                            pgid = os.getpgid(pid)
+                            os.killpg(pgid, signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError):
+                            proc.kill()
+                    else:
+                        proc.kill()
         except Exception as e:
-            logger.warning(f"   Failed to terminate process: {e}")
+            logger.warning(f"   Failed to terminate registered process: {e}")
 
-    # Force kill after a moment
-    import time
-    time.sleep(0.5)
-    for proc in list(_active_processes):
-        try:
-            if proc.returncode is None:
-                pid = proc.pid
-                logger.warning(f"   Force killing process {pid}")
+    # Step 2: CRITICAL - Find and kill orphaned MCP processes
+    try:
+        current_pid = os.getpid()
+        logger.info("🔍 Scanning for orphaned MCP processes...")
+        
+        orphaned_count = 0
+        for proc in psutil.process_iter(['pid', 'ppid', 'cmdline']):
+            try:
+                cmdline = ' '.join(proc.info['cmdline'] or [])
+                
+                # Check if this is an MCP tool process
+                is_mcp_tool = any(pattern in cmdline for pattern in MCP_TOOL_PATTERNS)
+                
+                if is_mcp_tool:
+                    pid = proc.info['pid']
+                    ppid = proc.info['ppid']
+                    
+                    # Kill if orphaned (ppid=1) or descendant of current process
+                    if ppid == 1 or _is_descendant_of(pid, current_pid):
+                        logger.info(f"🧹 Killing orphaned MCP process: {pid} {cmdline[:100]}")
+                        try:
+                            proc.terminate()
+                            orphaned_count += 1
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                            
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+                
+        if orphaned_count > 0:
+            logger.info(f"✅ Cleaned up {orphaned_count} orphaned MCP processes")
+            
+    except Exception as e:
+        logger.error(f"Error during orphan cleanup: {e}")
 
-                if IS_UNIX:
-                    # Try to kill process group
-                    try:
-                        pgid = os.getpgid(pid)
-                        os.killpg(pgid, signal.SIGKILL)
-                    except (ProcessLookupError, PermissionError):
-                        proc.kill()
-                else:
-                    # Windows: use taskkill to kill process tree
-                    try:
-                        import subprocess
-                        subprocess.run(
-                            ["taskkill", "/F", "/T", "/PID", str(pid)],
-                            capture_output=True,
-                            timeout=2.0,
-                        )
-                    except Exception:
-                        proc.kill()
-        except Exception:
-            pass
+    # Final safety layer: shell-based cleanup
+    _kill_orphaned_mcp_processes_shell()
+
     _active_processes.clear()
-    logger.info("✅ Cleanup complete")
+    logger.info("✅ Enhanced cleanup complete")
 
 
 def _register_session_manager(manager: "SessionManager") -> None:
@@ -200,6 +306,8 @@ class SessionManager:
         self.active_session_id: str | None = None
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task | None = None
+        self._orphan_monitor_task: asyncio.Task | None = None
+        self._shell_cleanup_task: asyncio.Task | None = None
         self._heartbeat_times: dict[str, datetime] = {}
         self._shutdown = False
         
@@ -229,11 +337,50 @@ class SessionManager:
         
         self._cleanup_task = asyncio.create_task(cleanup_loop())
         _cleanup_tasks.append(self._cleanup_task)
-        logger.debug("Started background session cleanup task")
+        
+        # Start orphan monitoring task
+        async def orphan_monitor_loop():
+            while not self._shutdown:
+                try:
+                    await asyncio.sleep(300)  # Check every 5 minutes (less aggressive)
+                    await self._monitor_orphaned_processes()
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.warning(f"Orphan monitor error: {e}")
+        
+        self._orphan_monitor_task = asyncio.create_task(orphan_monitor_loop())
+        _cleanup_tasks.append(self._orphan_monitor_task)
+        
+        # Start shell cleanup task (runs every 1 second)
+        async def shell_cleanup_loop():
+            logger.info("🚀 Shell cleanup task started - checking every 1 second")
+            check_count = 0
+            total_killed = 0
+            while not self._shutdown:
+                try:
+                    await asyncio.sleep(1)  # Check every second
+                    killed = _kill_orphaned_mcp_processes_shell(verbose=False)
+                    total_killed += killed
+                    check_count += 1
+                    
+                    # Log status every 60 seconds
+                    if check_count % 60 == 0:
+                        logger.info(f"🔄 Shell cleanup: {check_count} checks, {total_killed} total killed")
+                except asyncio.CancelledError:
+                    logger.info(f"🛑 Shell cleanup task cancelled after {check_count} checks, {total_killed} killed")
+                    break
+                except Exception as e:
+                    logger.warning(f"Shell cleanup task error: {e}")
+        
+        self._shell_cleanup_task = asyncio.create_task(shell_cleanup_loop())
+        _cleanup_tasks.append(self._shell_cleanup_task)
+        logger.info("✅ Started background tasks: session cleanup, orphan monitoring, shell cleanup (1s interval)")
     
     async def stop_background_cleanup(self) -> None:
-        """Stop the background cleanup task."""
+        """Stop the background cleanup and orphan monitoring tasks."""
         self._shutdown = True
+        
         if self._cleanup_task is not None:
             self._cleanup_task.cancel()
             try:
@@ -243,6 +390,26 @@ class SessionManager:
             if self._cleanup_task in _cleanup_tasks:
                 _cleanup_tasks.remove(self._cleanup_task)
             self._cleanup_task = None
+            
+        if self._orphan_monitor_task is not None:
+            self._orphan_monitor_task.cancel()
+            try:
+                await self._orphan_monitor_task
+            except asyncio.CancelledError:
+                pass
+            if self._orphan_monitor_task in _cleanup_tasks:
+                _cleanup_tasks.remove(self._orphan_monitor_task)
+            self._orphan_monitor_task = None
+            
+        if self._shell_cleanup_task is not None:
+            self._shell_cleanup_task.cancel()
+            try:
+                await self._shell_cleanup_task
+            except asyncio.CancelledError:
+                pass
+            if self._shell_cleanup_task in _cleanup_tasks:
+                _cleanup_tasks.remove(self._shell_cleanup_task)
+            self._shell_cleanup_task = None
     
     def heartbeat(self, session_id: str) -> None:
         """Update heartbeat for a session (call this on each tool call).
@@ -294,6 +461,52 @@ class SessionManager:
             
         _unregister_session_manager(self)
         return count
+    
+    async def _monitor_orphaned_processes(self) -> None:
+        """Monitor and clean up orphaned MCP processes."""
+        try:
+            # Early exit: skip scan if no active sessions
+            if not self.sessions:
+                logger.debug("No active sessions, skipping orphan scan")
+                return
+                
+            orphaned_count = 0
+            current_pid = os.getpid()
+            
+            # Process name filter for performance - only check potential MCP processes
+            mcp_process_names = {'node', 'python', 'python3', 'auggie'}
+            
+            for proc in psutil.process_iter(['pid', 'ppid', 'name']):
+                try:
+                    # Filter by process name first (much faster than cmdline)
+                    if proc.info['name'] not in mcp_process_names:
+                        continue
+                        
+                    # Only get cmdline for potential matches
+                    cmdline = ' '.join(proc.cmdline())
+                    
+                    # Check if this is an orphaned MCP tool process
+                    is_mcp_tool = any(pattern in cmdline for pattern in MCP_TOOL_PATTERNS)
+                    
+                    if is_mcp_tool and proc.info['ppid'] == 1:  # Orphaned (parent = init)
+                        logger.warning(f"🧹 Found orphaned MCP process: {proc.info['pid']} {cmdline[:100]}")
+                        try:
+                            psutil.Process(proc.info['pid']).terminate()
+                            orphaned_count += 1
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                            
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+                    
+            if orphaned_count > 0:
+                logger.info(f"🧹 Cleaned up {orphaned_count} orphaned MCP processes during monitoring")
+                
+            # Additional safety layer: shell-based cleanup
+            _kill_orphaned_mcp_processes_shell()
+                
+        except Exception as e:
+            logger.error(f"Error during orphan monitoring: {e}")
     
     def _generate_session_id(self) -> str:
         """Generate a unique session ID."""

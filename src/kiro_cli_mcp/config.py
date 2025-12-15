@@ -23,8 +23,8 @@ class ServerConfig:
     cleanup_interval: float = 30.0  # Check for inactive sessions every 30 seconds
     working_directory: str | None = None
     log_level: str = "INFO"
-    default_model: str = "claude-opus-4.5"  # Default to Claude Opus 4.5
-    default_agent: str | None = "kiro_default"  # Default agent to use (None = no agent)
+    default_model: str = "claude-sonnet-4.5"  # Default to Claude Sonnet 4.5
+    default_agent: str = "kiro_default"  # Default agent to use
     log_response: bool = True  # Log full CLI response for debugging
     
     # Process pool settings for performance
@@ -114,8 +114,8 @@ class ServerConfig:
             cleanup_interval=float(data.get("cleanup_interval", 30.0)),
             working_directory=data.get("working_directory"),
             log_level=data.get("log_level", "INFO"),
-            default_model=data.get("default_model", "claude-opus-4.5"),
-            default_agent=data.get("default_agent", "kiro_default"),
+            default_model=data.get("default_model", "claude-sonnet-4.5"),
+            default_agent=data.get("default_agent") or "kiro_default",
             log_response=parse_bool(data.get("log_response"), True),
             pool_enabled=parse_bool(data.get("pool_enabled"), True),
             pool_size=int(data.get("pool_size", 5)),

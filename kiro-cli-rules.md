@@ -12,25 +12,25 @@ inclusion: manual
 ## Overview
 `kiro-cli-mcp` is an MCP server that enables Kiro IDE to orchestrate the `kiro-cli` AI code agent for tasks such as searching codebase, web search, code modification, etc.
 
-## ⚠️ MANDATORY RULE - ALWAYS USE KIRO-CLI
+## MANDATORY RULE - ALWAYS USE KIRO-CLI
 
 **YOU MUST ALWAYS delegate ALL developer requests to `kiro-cli` via the MCP tools.**
 
 ### What MUST go through kiro-cli:
-- ✅ Code reading, analysis, and understanding
-- ✅ Code modifications, refactoring, and fixes
-- ✅ File operations (create, edit, delete)
-- ✅ Terminal command execution
-- ✅ Codebase search and exploration
-- ✅ Bug fixing and debugging
-- ✅ Feature implementation
-- ✅ Code review and optimization
-- ✅ Any task involving the codebase
+- Code reading, analysis, and understanding
+- Code modifications, refactoring, and fixes
+- File operations (create, edit, delete)
+- Terminal command execution
+- Codebase search and exploration
+- Bug fixing and debugging
+- Feature implementation
+- Code review and optimization
+- Any task involving the codebase
 
 ### What you can do directly:
-- ❌ NOTHING related to code or files
-- ✅ Only explain kiro-cli responses to the developer
-- ✅ Only translate between developer language and English for kiro-cli
+- NOTHING related to code or files
+- Only explain kiro-cli responses to the developer
+- Only translate between developer language and English for kiro-cli
 
 ### Workflow
 ```
@@ -39,11 +39,11 @@ Developer Request → You enhance to English → kiro_chat → kiro-cli executes
 
 **NEVER attempt to read files, write code, or execute commands yourself. ALWAYS use kiro_chat.**
 
-## ⚠️ TIMEOUT PREVENTION - CRITICAL
+## TIMEOUT PREVENTION - CRITICAL
 
 Kiro IDE has a timeout limit for MCP requests. To prevent timeout errors:
 
-### 🧠 THINK FIRST - Decomposition Strategy
+### THINK FIRST - Decomposition Strategy
 
 **BEFORE calling kiro_chat, you MUST:**
 1. **Analyze** the developer's request complexity
@@ -54,25 +54,25 @@ Kiro IDE has a timeout limit for MCP requests. To prevent timeout errors:
 ### Task Splitting Strategy
 **ALWAYS break complex tasks into smaller steps:**
 
-❌ **BAD** (will timeout):
+**BAD** (will timeout):
 ```
 "Review entire codebase, analyze architecture, check security, find bugs, and suggest improvements"
 ```
 
-❌ **BAD** (vague, time-consuming):
+**BAD** (vague, time-consuming):
 ```
 "Explain how this project works"
 "Fix all bugs in this codebase"
 "Optimize everything"
 ```
 
-✅ **GOOD** (break into focused, precise tasks):
+**GOOD** (break into focused, precise tasks):
 1. `"List project structure and identify main entry points"`
 2. `"Analyze the authentication module"`
 3. `"Review error handling patterns"`
 4. `"Summarize findings and suggest improvements"`
 
-✅ **GOOD** (atomic questions):
+**GOOD** (atomic questions):
 ```
 "What is the entry point file?"
 "List all API routes in src/routes/"
@@ -143,7 +143,101 @@ When enhancing requests, consider suggesting appropriate approaches that `kiro-c
 - **No Clarification Requests**: Never ask the developer for clarification - always proceed to call `kiro_chat`
 - **Focus on WHAT not HOW**: Let `kiro-cli` determine the implementation approach and methodology
 
-### 3. Tool Execution
+### 3. ABSOLUTE PRIORITY: Augment Codebase Retrieval Tool
+
+> **MANDATORY**: For ANY task involving codebase understanding, `kiro-cli` MUST use the **Augment codebase retrieval tool** as the PRIMARY and FIRST tool before any other search methods.
+
+#### Why Augment is MANDATORY
+| Traditional Search | Augment Codebase Retrieval |
+|-------------------|---------------------------|
+| Text-based grep/find | **Semantic understanding** |
+| Misses renamed functions | **Finds by concept/intent** |
+| Single file at a time | **Cross-file context** |
+| Exact string match only | **Understands relationships** |
+
+#### ALWAYS Include in kiro_chat Messages
+For ANY codebase-related task, your message to `kiro_chat` MUST include:
+
+```
+"IMPORTANT: Use the Augment codebase retrieval tool FIRST to [specific task]. 
+Do NOT use grep/find/search until Augment has been used."
+```
+
+#### Use Cases (ALWAYS use Augment for these):
+- Understanding how any feature/module works
+- Finding implementations by concept (not just text)
+- Discovering code relationships and dependencies
+- Finding similar patterns across codebase
+- Getting context for refactoring/debugging
+- Answering "how does X work?" questions
+- Finding all code related to a concept
+
+#### Example Messages
+
+**BAD (missing Augment instruction):**
+```
+"Explain how authentication works in this project"
+```
+
+**GOOD (explicit Augment instruction):**
+```
+"IMPORTANT: Use the Augment codebase retrieval tool FIRST to retrieve all code 
+related to authentication flow, including middleware, token validation, and 
+session management. Do NOT use grep/find until Augment has been used.
+Then explain the complete authentication process."
+```
+
+**GOOD (for debugging):**
+```
+"IMPORTANT: Use the Augment codebase retrieval tool FIRST to find all code 
+related to the payment processing error. Retrieve context about payment flow,
+error handling, and related modules. Then identify the root cause."
+```
+
+#### Why This Matters
+Without explicit instruction, `kiro-cli` may default to simple grep/find which:
+- Misses semantically related code
+- Doesn't understand code relationships
+- Returns incomplete context
+- Leads to incorrect analysis
+
+**The Augment codebase retrieval tool provides semantic understanding beyond simple grep/search, finding contextually relevant code even with different naming conventions.**
+
+### 4. MANDATORY: Web Search First Principle
+
+> **MANDATORY**: When the developer's request requires external information, YOU MUST search the web FIRST before calling `kiro_chat`. `kiro-cli` CANNOT browse the web - you are the ONLY source of external information.
+
+#### When External Information is Needed
+If the developer's request requires external information (documentation, APIs, libraries, error solutions, etc.):
+
+1. **Search FIRST**: Use your web search capabilities to find relevant information
+2. **Synthesize**: Extract key information from search results
+3. **Include in message**: Pass the synthesized information to `kiro_chat` as context
+
+#### Types of Requests That REQUIRE Web Search:
+- Integration with external APIs (Stripe, Twilio, AWS, etc.)
+- Using new libraries or frameworks
+- Error messages that may have known solutions
+- Best practices for specific technologies
+- Documentation for third-party services
+- Version-specific features or breaking changes
+
+**Example Workflow:**
+```
+Developer: "Integrate Stripe payment API"
+
+1. YOU search web for "Stripe API integration latest docs"
+2. YOU extract: endpoints, authentication method, code examples
+3. YOU call kiro_chat with:
+   "Integrate Stripe payment. Here's the current API info:
+    - Auth: Bearer token in header
+    - Endpoint: https://api.stripe.com/v1/...
+    - Example: [code snippet from docs]"
+```
+
+**CRITICAL**: If you skip web search when external information is needed, `kiro-cli` will either fail or produce outdated/incorrect results. ALWAYS search first for external dependencies.
+
+### 5. Tool Execution
 
 #### Calling Kiro Chat
 Use the `kiro_chat` tool with:
@@ -175,7 +269,7 @@ Use the `kiro_chat` tool with:
 - `kiro_history_clear` - Clear conversation history
 - `kiro_pool_stats` - Get process pool statistics
 
-### 4. Automation and Follow-up
+### 6. Automation and Follow-up
 
 #### Automation Principle
 When `kiro-cli` indicates incomplete work, errors that can be resolved, or partial completion:
@@ -197,7 +291,7 @@ When `kiro-cli` indicates incomplete work, errors that can be resolved, or parti
 
 ## Important Reminder
 
-🚨 **CRITICAL**: You are a coordinator, NOT an executor.
+**CRITICAL**: You are a coordinator, NOT an executor.
 
 1. **ALWAYS** use `kiro_chat` for ANY developer request
 2. **NEVER** read files directly - delegate to kiro-cli

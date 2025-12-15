@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import AsyncIterator, Any
 
+import psutil
+
 # Regex to strip ANSI escape codes (colors, cursor movement, etc.)
 ANSI_ESCAPE_PATTERN = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
@@ -124,106 +126,72 @@ class CommandExecutor:
             )
 
     async def _terminate_process_tree(self, process: asyncio.subprocess.Process, timeout: float = 5.0) -> None:
-        """Terminate a process and all its children (process tree cleanup).
+        """Terminate a process and ALL its descendants (full process tree cleanup).
 
         This is critical for preventing orphaned processes when kiro-cli spawns
-        MCP servers or other child processes.
+        MCP servers (like augment-context/auggie) or other child processes.
 
-        Strategy:
-        1. Send SIGTERM to process group (graceful shutdown)
-        2. Wait for timeout
-        3. Send SIGKILL to process group (forceful kill)
+        Strategy using psutil for reliable recursive kill:
+        1. Get all descendant processes (children, grandchildren, etc.)
+        2. Send SIGTERM to all descendants (graceful shutdown)
+        3. Wait for timeout
+        4. Send SIGKILL to remaining processes (forceful kill)
 
         Args:
             process: The process to terminate
             timeout: Graceful shutdown timeout in seconds
         """
         if process.returncode is not None:
-            # Already terminated
             return
 
         pid = process.pid
 
         try:
-            if IS_UNIX:
-                # Unix: kill entire process group
+            parent = psutil.Process(pid)
+        except psutil.NoSuchProcess:
+            logger.debug(f"Process {pid} already gone")
+            return
+
+        try:
+            children = parent.children(recursive=True)
+            all_procs = children + [parent]
+            
+            logger.info(f"🧹 Terminating process tree (pid={pid}, {len(children)} descendants)")
+            for child in children:
+                logger.debug(f"   Found descendant: pid={child.pid}, name={child.name()}")
+
+            for proc in all_procs:
                 try:
-                    pgid = os.getpgid(pid)
-                    logger.info(f"🧹 Terminating process group {pgid} (parent pid={pid})")
+                    proc.terminate()
+                    logger.debug(f"   Sent SIGTERM to pid={proc.pid}")
+                except psutil.NoSuchProcess:
+                    pass
 
-                    # Step 1: Graceful shutdown with SIGTERM
+            gone, alive = psutil.wait_procs(all_procs, timeout=timeout)
+            
+            if alive:
+                logger.warning(f"⏱️  {len(alive)} processes did not terminate gracefully, force killing...")
+                for proc in alive:
                     try:
-                        os.killpg(pgid, signal.SIGTERM)
-                        logger.debug(f"   Sent SIGTERM to process group {pgid}")
-                    except ProcessLookupError:
-                        logger.debug(f"   Process group {pgid} already gone")
-                        return
-
-                    # Step 2: Wait for graceful shutdown
-                    try:
-                        await asyncio.wait_for(process.wait(), timeout=timeout)
-                        logger.info(f"✅ Process group {pgid} terminated gracefully")
-                        return
-                    except asyncio.TimeoutError:
-                        logger.warning(f"⏱️  Process group {pgid} did not terminate gracefully, force killing...")
-
-                    # Step 3: Force kill with SIGKILL
-                    try:
-                        os.killpg(pgid, signal.SIGKILL)
-                        logger.debug(f"   Sent SIGKILL to process group {pgid}")
-                        await asyncio.wait_for(process.wait(), timeout=2.0)
-                        logger.info(f"✅ Process group {pgid} force killed")
-                    except ProcessLookupError:
-                        logger.debug(f"   Process group {pgid} already gone")
-                    except asyncio.TimeoutError:
-                        logger.error(f"❌ Failed to kill process group {pgid}")
-
-                except ProcessLookupError:
-                    # Process already gone, try killing just the process
-                    logger.debug(f"   Process {pid} already gone")
-                    try:
-                        process.kill()
-                        await process.wait()
-                    except Exception:
+                        proc.kill()
+                        logger.debug(f"   Sent SIGKILL to pid={proc.pid}")
+                    except psutil.NoSuchProcess:
                         pass
-            else:
-                # Windows: use taskkill to kill process tree
-                logger.info(f"🧹 Terminating process tree (pid={pid}) on Windows")
+                
+                psutil.wait_procs(alive, timeout=2.0)
+            
+            logger.info(f"✅ Process tree terminated: {len(gone)} graceful, {len(alive)} forced")
 
-                # Step 1: Try graceful termination
-                try:
-                    process.terminate()
-                    await asyncio.wait_for(process.wait(), timeout=timeout)
-                    logger.info(f"✅ Process {pid} terminated gracefully")
-                    return
-                except asyncio.TimeoutError:
-                    logger.warning(f"⏱️  Process {pid} did not terminate gracefully, force killing...")
-
-                # Step 2: Force kill process tree
-                try:
-                    # Use taskkill /F /T to kill process tree
-                    import subprocess
-                    subprocess.run(
-                        ["taskkill", "/F", "/T", "/PID", str(pid)],
-                        capture_output=True,
-                        timeout=5.0,
-                    )
-                    await asyncio.wait_for(process.wait(), timeout=2.0)
-                    logger.info(f"✅ Process tree {pid} force killed")
-                except Exception as e:
-                    logger.error(f"❌ Failed to kill process tree {pid}: {e}")
-                    # Last resort: kill just the process
-                    try:
-                        process.kill()
-                        await process.wait()
-                    except Exception:
-                        pass
-
+        except psutil.NoSuchProcess:
+            logger.debug(f"Process {pid} already gone during cleanup")
         except Exception as e:
-            logger.error(f"Error terminating process tree: {e}")
-            # Last resort: try to kill the process
+            logger.error(f"Error terminating process tree with psutil: {e}")
             try:
-                process.kill()
+                if IS_UNIX:
+                    pgid = os.getpgid(pid)
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    process.kill()
                 await process.wait()
             except Exception:
                 pass
@@ -484,11 +452,13 @@ class CommandExecutor:
         # Build command
         cmd = [kiro_cli, "chat"]
         
-        # Always use configured model (default: claude-opus-4.5)
-        cmd.extend(["--model", self.config.default_model])
-        
         # Use session agent or fallback to default agent from config
         agent = session.agent or self.config.default_agent
+        
+        # Only add --model if using kiro_default agent
+        if agent == "kiro_default":
+            cmd.extend(["--model", self.config.default_model])
+        
         if agent:
             cmd.extend(["--agent", agent])
         
@@ -504,7 +474,8 @@ class CommandExecutor:
         try:
             logger.info(f"🚀 Executing kiro-cli chat")
             logger.info(f"   Command: {' '.join(cmd)}")
-            logger.info(f"   Model: {self.config.default_model}")
+            if agent == "kiro_default":
+                logger.info(f"   Model: {self.config.default_model}")
             logger.info(f"   Agent: {agent or 'None'}")
             logger.info(f"   Working directory: {cwd}")
             logger.info(f"   Message: {message[:100]}{'...' if len(message) > 100 else ''}")
@@ -587,8 +558,10 @@ class CommandExecutor:
                 )
             else:
                 await asyncio.gather(read_with_progress(), read_stderr())
-            
+                
             await process.wait()
+            # Ensure ALL descendants (MCP subprocesses) are terminated
+            await self._terminate_process_tree(process)
             unregister_process(process)
             stdout = b''.join(stdout_chunks)
             stderr = b''.join(stderr_chunks)
@@ -647,6 +620,8 @@ class CommandExecutor:
         except FileNotFoundError as e:
             logger.error(f"FileNotFoundError when executing kiro-cli: {e}")
             logger.error(f"Command: {cmd}, cwd: {cwd}")
+            if process and process.returncode is None:
+                await self._terminate_process_tree(process)
             if process:
                 unregister_process(process)
             raise ExecutionError(
@@ -656,6 +631,8 @@ class CommandExecutor:
         except Exception as e:
             logger.error(f"Unexpected error executing kiro-cli: {type(e).__name__}: {e}")
             logger.error(f"Command: {cmd}, cwd: {cwd}")
+            if process and process.returncode is None:
+                await self._terminate_process_tree(process)
             if process:
                 unregister_process(process)
             raise
@@ -676,11 +653,13 @@ class CommandExecutor:
 
         cmd = [kiro_cli, "chat"]
         
-        # Always use configured model (default: claude-opus-4.5)
-        cmd.extend(["--model", self.config.default_model])
-        
         # Use session agent or fallback to default agent from config
         agent = session.agent or self.config.default_agent
+        
+        # Only add --model if using kiro_default agent
+        if agent == "kiro_default":
+            cmd.extend(["--model", self.config.default_model])
+        
         if agent:
             cmd.extend(["--agent", agent])
 
@@ -692,7 +671,8 @@ class CommandExecutor:
 
         try:
             logger.info(f"🚀 Executing kiro-cli chat (streaming)")
-            logger.info(f"   Model: {self.config.default_model}")
+            if agent == "kiro_default":
+                logger.info(f"   Model: {self.config.default_model}")
             logger.info(f"   Agent: {agent or 'None'}")
             logger.info(f"   Working directory: {cwd}")
 
@@ -800,11 +780,13 @@ class CommandExecutor:
 
         cmd = [kiro_cli, "chat"]
         
-        # Always use configured model (default: claude-opus-4.5)
-        cmd.extend(["--model", self.config.default_model])
-        
         # Use session agent or fallback to default agent from config
         agent = session.agent or self.config.default_agent
+        
+        # Only add --model if using kiro_default agent
+        if agent == "kiro_default":
+            cmd.extend(["--model", self.config.default_model])
+        
         if agent:
             cmd.extend(["--agent", agent])
 

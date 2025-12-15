@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import psutil
+
 logger = logging.getLogger(__name__)
 
 # Check if we're on Unix-like system (for process group support)
@@ -65,7 +67,7 @@ class ProcessPool:
         max_pool_size: int = 5,
         max_idle_time: float = 300.0,  # 5 minutes
         max_process_uses: int = 100,  # Recycle after N uses
-        default_model: str = "claude-opus-4.5",
+        default_model: str = "claude-sonnet-4.5",
     ) -> None:
         self.kiro_cli_path = kiro_cli_path
         self.max_pool_size = max_pool_size
@@ -168,59 +170,64 @@ class ProcessPool:
         
         logger.info("✅ Process pool stopped")
     
-    async def _terminate_process(self, pooled: PooledProcess) -> None:
-        """Safely terminate a pooled process and its children.
+    async def _terminate_process(self, pooled: PooledProcess, timeout: float = 5.0) -> None:
+        """Safely terminate a pooled process and ALL its descendants.
 
-        This ensures that any MCP servers or child processes spawned by
-        kiro-cli are also terminated.
+        This ensures that any MCP servers (like augment-context/auggie) or child 
+        processes spawned by kiro-cli are also terminated, preventing orphan processes.
+        
+        Uses psutil for reliable recursive kill across all platforms.
         """
+        if not pooled.is_alive:
+            return
+            
+        pid = pooled.process.pid
+        
         try:
-            if pooled.is_alive:
-                pid = pooled.process.pid
+            parent = psutil.Process(pid)
+        except psutil.NoSuchProcess:
+            logger.debug(f"Process {pid} already gone")
+            return
 
-                if IS_UNIX:
-                    # Unix: kill process group
-                    try:
-                        pgid = os.getpgid(pid)
-                        logger.debug(f"Terminating process group {pgid}")
+        try:
+            children = parent.children(recursive=True)
+            all_procs = children + [parent]
+            
+            logger.debug(f"Terminating process tree (pid={pid}, {len(children)} descendants)")
 
-                        # Try graceful shutdown first
-                        os.killpg(pgid, signal.SIGTERM)
-                        try:
-                            await asyncio.wait_for(pooled.process.wait(), timeout=2.0)
-                            return
-                        except asyncio.TimeoutError:
-                            # Force kill
-                            os.killpg(pgid, signal.SIGKILL)
-                            await pooled.process.wait()
-                    except (ProcessLookupError, PermissionError):
-                        # Fall back to killing just the process
-                        pooled.process.terminate()
-                        try:
-                            await asyncio.wait_for(pooled.process.wait(), timeout=2.0)
-                        except asyncio.TimeoutError:
-                            pooled.process.kill()
-                            await pooled.process.wait()
-                else:
-                    # Windows: use taskkill for process tree
+            for proc in all_procs:
+                try:
+                    proc.terminate()
+                except psutil.NoSuchProcess:
+                    pass
+
+            gone, alive = psutil.wait_procs(all_procs, timeout=timeout)
+            
+            if alive:
+                logger.debug(f"{len(alive)} processes did not terminate gracefully, force killing...")
+                for proc in alive:
                     try:
-                        pooled.process.terminate()
-                        await asyncio.wait_for(pooled.process.wait(), timeout=2.0)
-                    except asyncio.TimeoutError:
-                        # Force kill process tree
-                        try:
-                            import subprocess
-                            subprocess.run(
-                                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                                capture_output=True,
-                                timeout=2.0,
-                            )
-                        except Exception:
-                            pass
-                        pooled.process.kill()
-                        await pooled.process.wait()
+                        proc.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                
+                psutil.wait_procs(alive, timeout=2.0)
+            
+            logger.debug(f"Process tree terminated: {len(gone)} graceful, {len(alive)} forced")
+
+        except psutil.NoSuchProcess:
+            logger.debug(f"Process {pid} already gone during cleanup")
         except Exception as e:
-            logger.debug(f"Error terminating process: {e}")
+            logger.debug(f"Error terminating process tree with psutil: {e}")
+            try:
+                if IS_UNIX:
+                    pgid = os.getpgid(pid)
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    pooled.process.kill()
+                await pooled.process.wait()
+            except Exception:
+                pass
     
     async def _cleanup_stale_processes(self) -> None:
         """Clean up processes that are idle too long or used too many times."""
@@ -326,7 +333,11 @@ class ProcessPool:
         
         # Build command - use interactive mode for process reuse
         cmd = [kiro_cli, "chat"]
-        cmd.extend(["--model", model])
+        
+        # Only add --model if using kiro_default agent
+        if agent == "kiro_default":
+            cmd.extend(["--model", model])
+        
         if agent:
             cmd.extend(["--agent", agent])
 
@@ -491,7 +502,7 @@ class PersistentProcessManager:
     def __init__(
         self,
         kiro_cli_path: str = "kiro-cli",
-        default_model: str = "claude-opus-4.5",
+        default_model: str = "claude-sonnet-4.5",
     ) -> None:
         self.kiro_cli_path = kiro_cli_path
         self.default_model = default_model
