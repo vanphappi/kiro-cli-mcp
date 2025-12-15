@@ -22,6 +22,7 @@ from .tools import get_all_tools, get_tool_by_name
 from .resources import get_all_resources, get_resource_by_uri
 from .errors import MCPError, ErrorCode
 from .streaming import StreamingTaskManager, create_chat_task_executor
+from .prompts import PromptMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,11 @@ def create_mcp_server(config: ServerConfig) -> Server:
         max_tasks=config.max_async_tasks,
         task_ttl=config.task_ttl,
     )
+    
+    # Initialize prompt matcher
+    prompts_dir = Path(config.prompts_dir) if config.prompts_dir else None
+    prompt_matcher = PromptMatcher(prompts_dir=prompts_dir)
+    prompt_matcher.set_enabled(config.prompt_matching_enabled)
     
     # Flag to track if services started
     _services_started = False
@@ -94,7 +100,7 @@ def create_mcp_server(config: ServerConfig) -> Server:
         try:
             # Route to appropriate handler
             if name == "kiro_chat":
-                result = await _handle_chat(session_manager, command_executor, arguments)
+                result = await _handle_chat(session_manager, command_executor, prompt_matcher, config, arguments)
             elif name == "kiro_session_create":
                 result = await _handle_session_create(session_manager, arguments)
             elif name == "kiro_session_list":
@@ -130,6 +136,10 @@ def create_mcp_server(config: ServerConfig) -> Server:
                 result = await _handle_session_save(
                     session_manager, command_executor, arguments
                 )
+            elif name == "kiro_prompts_list":
+                result = await _handle_prompts_list(prompt_matcher)
+            elif name == "kiro_prompts_get":
+                result = await _handle_prompts_get(prompt_matcher, arguments)
             else:
                 raise MCPError(
                     code=ErrorCode.INVALID_COMMAND,
@@ -196,12 +206,15 @@ def create_mcp_server(config: ServerConfig) -> Server:
 async def _handle_chat(
     session_manager: SessionManager,
     command_executor: CommandExecutor,
+    prompt_matcher: PromptMatcher,
+    config: ServerConfig,
     arguments: dict[str, Any]
 ) -> dict[str, Any]:
-    """Handle kiro_chat tool call."""
+    """Handle kiro_chat tool call with AI-powered prompt selection."""
     message = arguments.get("message", "")
     session_id = arguments.get("session_id")
     stream = arguments.get("stream", False)
+    skip_prompt_matching = arguments.get("skip_prompt_matching", False)
 
     session = await session_manager.get_or_create_session(session_id)
 
@@ -210,8 +223,36 @@ async def _handle_chat(
         # Fall back to non-streaming
         logger.warning("Streaming requested but not fully supported, using non-streaming")
 
-    response = await command_executor.execute_chat(session, message)
-    return response.to_dict()
+    # AI-powered prompt selection and enhancement
+    selected_prompt = None
+    enhanced_message = message
+    
+    if config.prompt_matching_enabled and not skip_prompt_matching:
+        # Create executor function for prompt matcher
+        async def kiro_executor(msg: str, working_dir: str) -> str:
+            temp_session = await session_manager.get_or_create_session(None)
+            temp_session.working_directory = working_dir
+            response = await command_executor.execute_chat(temp_session, msg)
+            return response.content
+        
+        prompt_matcher.set_executor(kiro_executor)
+        
+        # Select and apply prompt
+        enhanced_message, selected_prompt = await prompt_matcher.process_message(
+            message,
+            session.working_directory,
+        )
+        
+        if selected_prompt:
+            logger.info(f"🎯 Applied prompt: {selected_prompt.name}")
+
+    response = await command_executor.execute_chat(session, enhanced_message)
+    
+    result = response.to_dict()
+    if selected_prompt:
+        result["applied_prompt"] = selected_prompt.name
+    
+    return result
 
 
 async def _handle_session_create(
@@ -466,6 +507,41 @@ async def _handle_session_save(
         "session_id": session.id,
         "save_path": save_path,
     }
+
+
+async def _handle_prompts_list(
+    prompt_matcher: PromptMatcher,
+) -> dict[str, Any]:
+    """Handle kiro_prompts_list tool call - list all available prompts."""
+    prompts = prompt_matcher.loader.list_prompts()
+    return {
+        "prompts": [p.to_dict() for p in prompts],
+        "count": len(prompts),
+        "enabled": prompt_matcher._enabled,
+    }
+
+
+async def _handle_prompts_get(
+    prompt_matcher: PromptMatcher,
+    arguments: dict[str, Any]
+) -> dict[str, Any]:
+    """Handle kiro_prompts_get tool call - get a specific prompt."""
+    name = arguments.get("name", "")
+    
+    prompt = prompt_matcher.loader.get_prompt(name)
+    if prompt:
+        return {
+            "found": True,
+            "prompt": {
+                **prompt.to_dict(),
+                "content": prompt.content,
+            }
+        }
+    else:
+        return {
+            "found": False,
+            "error": f"Prompt '{name}' not found",
+        }
 
 
 # Keep the old class for backward compatibility

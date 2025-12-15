@@ -6,7 +6,7 @@ from typing import Any
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "kiro_chat",
-        "description": "Send a chat message to kiro-cli and get AI response",
+        "description": "Send a chat message to kiro-cli and get AI response. Supports AI-powered prompt selection based on message content.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -21,6 +21,11 @@ TOOLS: list[dict[str, Any]] = [
                 "stream": {
                     "type": "boolean",
                     "description": "Whether to stream the response",
+                    "default": False
+                },
+                "skip_prompt_matching": {
+                    "type": "boolean",
+                    "description": "Skip AI-powered prompt selection and send message as-is",
                     "default": False
                 }
             },
@@ -243,6 +248,28 @@ TOOLS: list[dict[str, Any]] = [
                 }
             },
             "required": ["path"]
+        }
+    },
+    {
+        "name": "kiro_prompts_list",
+        "description": "List all available prompts for AI-powered prompt selection",
+        "inputSchema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "kiro_prompts_get",
+        "description": "Get details of a specific prompt by name",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Name of the prompt to retrieve"
+                }
+            },
+            "required": ["name"]
         }
     }
 ]

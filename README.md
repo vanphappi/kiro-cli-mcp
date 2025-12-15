@@ -15,6 +15,7 @@ Kiro CLI MCP Server bridges the gap between IDE agents and kiro-cli by providing
 
 ### Core Capabilities
 - **Chat Integration**: Send messages to kiro-cli and receive AI responses
+- **AI-Powered Prompt Selection**: Automatically select and apply the best prompt based on message content
 - **Session Management**: Create, switch, and manage multiple isolated sessions
 - **Command Execution**: Execute kiro-cli commands (`/help`, `/mcp`, etc.)
 - **Custom Agents**: Use and list available custom agents
@@ -114,6 +115,8 @@ Add to your IDE's MCP configuration file:
 | `KIRO_MCP_POOL_MAX_USES` | Max uses per process before recycling | `100` |
 | `KIRO_MCP_MAX_ASYNC_TASKS` | Maximum concurrent async tasks | `100` |
 | `KIRO_MCP_TASK_TTL` | Task result TTL (seconds) | `3600` |
+| `KIRO_MCP_PROMPT_MATCHING_ENABLED` | Enable AI-powered prompt selection | `true` |
+| `KIRO_MCP_PROMPTS_DIR` | Custom prompts directory | Built-in |
 
 ## Available MCP Tools
 
@@ -126,9 +129,13 @@ Add to your IDE's MCP configuration file:
 - **`kiro_session_save`** - Save session to file
 
 ### Chat & Commands
-- **`kiro_chat`** - Send chat message and get AI response
+- **`kiro_chat`** - Send chat message and get AI response (with AI-powered prompt selection)
 - **`kiro_command`** - Execute kiro-cli commands (`/help`, `/mcp`, etc.)
 - **`kiro_agents_list`** - List available custom agents
+
+### Prompt Management
+- **`kiro_prompts_list`** - List all available prompts
+- **`kiro_prompts_get`** - Get details of a specific prompt
 
 ### History Management
 - **`kiro_history`** - Get conversation history for session
@@ -153,9 +160,20 @@ await mcp_client.call_tool("kiro_session_create", {
     "agent": "code-reviewer"
 })
 
-# Send message
+# Send message - AI automatically selects best prompt
 response = await mcp_client.call_tool("kiro_chat", {
     "message": "Analyze this codebase and suggest improvements"
+})
+
+# Use explicit trigger command
+response = await mcp_client.call_tool("kiro_chat", {
+    "message": "/code implement user authentication"
+})
+
+# Skip prompt matching for raw message
+response = await mcp_client.call_tool("kiro_chat", {
+    "message": "Hello, how are you?",
+    "skip_prompt_matching": True
 })
 ```
 

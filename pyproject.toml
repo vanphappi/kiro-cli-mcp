@@ -51,6 +51,9 @@ Documentation = "https://github.com/vanphappi/kiro-cli-mcp#readme"
 [tool.hatch.build.targets.wheel]
 packages = ["src/kiro_cli_mcp"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/kiro_cli_mcp/prompts/data" = "kiro_cli_mcp/prompts/data"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

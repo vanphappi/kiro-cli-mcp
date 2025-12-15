@@ -37,6 +37,10 @@ class ServerConfig:
     max_async_tasks: int = 100  # Maximum concurrent async tasks
     task_ttl: float = 3600.0  # Task result TTL in seconds (1 hour)
     
+    # Prompt matching settings
+    prompt_matching_enabled: bool = True  # Enable AI-powered prompt selection
+    prompts_dir: str | None = None  # Custom prompts directory (None = use built-in)
+    
     def __post_init__(self) -> None:
         """Validate configuration values after initialization."""
         self._validate()
@@ -90,6 +94,8 @@ class ServerConfig:
             "pool_max_uses": self.pool_max_uses,
             "max_async_tasks": self.max_async_tasks,
             "task_ttl": self.task_ttl,
+            "prompt_matching_enabled": self.prompt_matching_enabled,
+            "prompts_dir": self.prompts_dir,
         }
     
     @classmethod
@@ -123,6 +129,8 @@ class ServerConfig:
             pool_max_uses=int(data.get("pool_max_uses", 100)),
             max_async_tasks=int(data.get("max_async_tasks", 100)),
             task_ttl=float(data.get("task_ttl", 3600.0)),
+            prompt_matching_enabled=parse_bool(data.get("prompt_matching_enabled"), True),
+            prompts_dir=data.get("prompts_dir"),
         )
 
 
@@ -167,6 +175,8 @@ class ConfigManager:
             "POOL_MAX_USES": "pool_max_uses",
             "MAX_ASYNC_TASKS": "max_async_tasks",
             "TASK_TTL": "task_ttl",
+            "PROMPT_MATCHING_ENABLED": "prompt_matching_enabled",
+            "PROMPTS_DIR": "prompts_dir",
         }
         
         for env_suffix, config_key in env_mappings.items():
