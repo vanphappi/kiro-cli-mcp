@@ -221,14 +221,45 @@ class PromptMatcher:
             
             # Strip ANSI escape codes from response (kiro-cli may include colors)
             response = strip_ansi_codes(response)
-            logger.debug(f"AI response (cleaned): {response[:100]}")
+            logger.debug(f"AI response (cleaned): {response[:200]}")
             
-            # Parse response - expect just the prompt name or "none"
-            selected_name = response.strip().lower()
+            # Parse response - kiro-cli may include tool calls and verbose output
+            # Look for the final prompt name which typically appears after "> " at the end
+            selected_name = None
             
-            # Clean up response (remove quotes, extra text, special chars)
-            selected_name = re.sub(r'["\'\s>]', '', selected_name)  # Also remove '>'
-            selected_name = selected_name.split('\n')[0]  # Take first line only
+            # Strategy 1: Look for "> promptname" pattern at end of response
+            final_line_match = re.search(r'>\s*(\w+)\s*$', response)
+            if final_line_match:
+                selected_name = final_line_match.group(1).lower()
+                logger.debug(f"Extracted prompt from '> name' pattern: {selected_name}")
+            
+            # Strategy 2: If response is short and clean, use it directly
+            if not selected_name:
+                clean_response = response.strip().lower()
+                # Remove common prefixes/suffixes
+                clean_response = re.sub(r'^(output:|selected:|prompt:)\s*', '', clean_response)
+                clean_response = re.sub(r'["\'\s>]', '', clean_response)
+                
+                # If it's a single word matching a known prompt, use it
+                first_word = clean_response.split('\n')[0].split()[0] if clean_response.split() else ''
+                if first_word and len(first_word) < 30 and self.loader.get_prompt(first_word):
+                    selected_name = first_word
+                    logger.debug(f"Extracted prompt from clean response: {selected_name}")
+            
+            # Strategy 3: Search for any known prompt name in the response
+            if not selected_name:
+                for prompt_info in self.loader.list_prompts():
+                    # Look for the prompt name as a standalone word near the end
+                    pattern = rf'\b{re.escape(prompt_info.name)}\b'
+                    matches = list(re.finditer(pattern, response.lower()))
+                    if matches:
+                        # Take the last occurrence (most likely the final answer)
+                        selected_name = prompt_info.name
+                        logger.debug(f"Found prompt name in response: {selected_name}")
+                        break
+            
+            if not selected_name:
+                selected_name = ""
             
             if selected_name == "none" or not selected_name:
                 logger.info("AI selected: none (no suitable prompt)")

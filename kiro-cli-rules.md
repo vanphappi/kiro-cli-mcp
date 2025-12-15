@@ -5,7 +5,10 @@ inclusion: manual
    Add rules to this file or a short description that will apply across all your workspaces.
    
    Learn about inclusion modes: https://kiro.dev/docs/steering/#inclusion-modes
--------------------------------------------------------------------------------------> 
+------------------------------------------------------------------------------------->
+
+**CLI MODE NOTICE**
+If you are running in **`kiro-cli` (CLI mode)**, **IGNORE THIS ENTIRE FILE**.
 
 # Kiro CLI MCP Assistant
 
