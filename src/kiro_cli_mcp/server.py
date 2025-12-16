@@ -105,41 +105,17 @@ def create_mcp_server(config: ServerConfig) -> Server:
                 result = await _handle_session_create(session_manager, arguments)
             elif name == "kiro_session_list":
                 result = await _handle_session_list(session_manager)
-            elif name == "kiro_session_switch":
-                result = await _handle_session_switch(session_manager, arguments)
             elif name == "kiro_session_end":
                 result = await _handle_session_end(session_manager, arguments)
             elif name == "kiro_command":
                 result = await _handle_command(session_manager, command_executor, arguments)
-            elif name == "kiro_agents_list":
-                result = await _handle_agents_list(command_executor)
-            elif name == "kiro_history":
-                result = await _handle_history(session_manager, arguments)
-            elif name == "kiro_history_clear":
-                result = await _handle_history_clear(session_manager, arguments)
-            # New streaming/async tools
+            # Async tools
             elif name == "kiro_chat_async":
                 result = await _handle_chat_async(
                     session_manager, command_executor, task_manager, arguments
                 )
             elif name == "kiro_task_status":
                 result = await _handle_task_status(task_manager, arguments)
-            elif name == "kiro_task_cancel":
-                result = await _handle_task_cancel(task_manager, arguments)
-            elif name == "kiro_task_list":
-                result = await _handle_task_list(task_manager, arguments)
-            elif name == "kiro_pool_stats":
-                result = await _handle_pool_stats(command_executor)
-            elif name == "kiro_session_clear":
-                result = await _handle_session_clear(session_manager, arguments)
-            elif name == "kiro_session_save":
-                result = await _handle_session_save(
-                    session_manager, command_executor, arguments
-                )
-            elif name == "kiro_prompts_list":
-                result = await _handle_prompts_list(prompt_matcher)
-            elif name == "kiro_prompts_get":
-                result = await _handle_prompts_get(prompt_matcher, arguments)
             else:
                 raise MCPError(
                     code=ErrorCode.INVALID_COMMAND,
@@ -277,19 +253,6 @@ async def _handle_session_list(session_manager: SessionManager) -> dict[str, Any
     }
 
 
-async def _handle_session_switch(
-    session_manager: SessionManager,
-    arguments: dict[str, Any]
-) -> dict[str, Any]:
-    """Handle kiro_session_switch tool call."""
-    session_id = arguments.get("session_id", "")
-    await session_manager.switch_session(session_id)
-    return {
-        "success": True,
-        "active_session_id": session_id,
-    }
-
-
 async def _handle_session_end(
     session_manager: SessionManager,
     arguments: dict[str, Any]
@@ -316,49 +279,6 @@ async def _handle_command(
     result = await command_executor.execute_command(session, command)
 
     return result.to_dict()
-
-
-async def _handle_agents_list(command_executor: CommandExecutor) -> dict[str, Any]:
-    """Handle kiro_agents_list tool call."""
-    agents = await command_executor.list_agents()
-    return {
-        "agents": [a.to_dict() for a in agents],
-        "count": len(agents),
-    }
-
-
-async def _handle_history(
-    session_manager: SessionManager,
-    arguments: dict[str, Any]
-) -> dict[str, Any]:
-    """Handle kiro_history tool call."""
-    session_id = arguments.get("session_id")
-    limit = arguments.get("limit", 50)
-
-    session = await session_manager.get_or_create_session(session_id)
-    history = session.get_history(limit)
-
-    return {
-        "session_id": session.id,
-        "history": [msg.to_dict() for msg in history],
-        "count": len(history),
-    }
-
-
-async def _handle_history_clear(
-    session_manager: SessionManager,
-    arguments: dict[str, Any]
-) -> dict[str, Any]:
-    """Handle kiro_history_clear tool call."""
-    session_id = arguments.get("session_id")
-
-    session = await session_manager.get_or_create_session(session_id)
-    session.clear_history()
-
-    return {
-        "success": True,
-        "session_id": session.id,
-    }
 
 
 async def _handle_chat_async(
@@ -408,140 +328,6 @@ async def _handle_task_status(
         }
     
     return status
-
-
-async def _handle_task_cancel(
-    task_manager: StreamingTaskManager,
-    arguments: dict[str, Any]
-) -> dict[str, Any]:
-    """Handle kiro_task_cancel tool call - cancel a running task."""
-    task_id = arguments.get("task_id", "")
-    
-    cancelled = await task_manager.cancel_task(task_id)
-    
-    return {
-        "success": cancelled,
-        "task_id": task_id,
-        "message": "Task cancelled" if cancelled else "Task not found or already completed",
-    }
-
-
-async def _handle_task_list(
-    task_manager: StreamingTaskManager,
-    arguments: dict[str, Any]
-) -> dict[str, Any]:
-    """Handle kiro_task_list tool call - list active tasks."""
-    session_id = arguments.get("session_id")
-    include_done = arguments.get("include_done", False)
-    
-    tasks = await task_manager.list_tasks(session_id, include_done)
-    
-    return {
-        "tasks": [t.to_dict() for t in tasks],
-        "count": len(tasks),
-    }
-
-
-async def _handle_pool_stats(
-    command_executor: CommandExecutor,
-) -> dict[str, Any]:
-    """Handle kiro_pool_stats tool call - get process pool statistics."""
-    return {
-        "pool_stats": command_executor.pool_stats,
-    }
-
-
-async def _handle_session_clear(
-    session_manager: SessionManager,
-    arguments: dict[str, Any]
-) -> dict[str, Any]:
-    """Handle kiro_session_clear tool call - clear kiro-cli session file."""
-    session_id = arguments.get("session_id")
-    session = await session_manager.get_or_create_session(session_id)
-    
-    # Delete .kiro/session.json in working directory
-    working_dir = session.working_directory or "."
-    session_file = Path(working_dir) / ".kiro" / "session.json"
-    
-    if session_file.exists():
-        session_file.unlink()
-        logger.info(f"Cleared kiro-cli session file: {session_file}")
-        return {
-            "success": True,
-            "message": f"Cleared kiro-cli session in {working_dir}",
-            "path": str(session_file),
-        }
-    else:
-        return {
-            "success": False,
-            "message": "No kiro-cli session file found",
-            "path": str(session_file),
-        }
-
-
-async def _handle_session_save(
-    session_manager: SessionManager,
-    command_executor: CommandExecutor,
-    arguments: dict[str, Any]
-) -> dict[str, Any]:
-    """Handle kiro_session_save tool call - save session using /save command."""
-    session_id = arguments.get("session_id")
-    save_path = arguments.get("path", "")
-    
-    if not save_path:
-        return {
-            "success": False,
-            "error": "Path is required",
-        }
-    
-    session = await session_manager.get_or_create_session(session_id)
-    
-    # Execute /save command
-    result = await command_executor.execute_command(
-        session,
-        f"/save {save_path}"
-    )
-    
-    return {
-        **result.to_dict(),
-        "session_id": session.id,
-        "save_path": save_path,
-    }
-
-
-async def _handle_prompts_list(
-    prompt_matcher: PromptMatcher,
-) -> dict[str, Any]:
-    """Handle kiro_prompts_list tool call - list all available prompts."""
-    prompts = prompt_matcher.loader.list_prompts()
-    return {
-        "prompts": [p.to_dict() for p in prompts],
-        "count": len(prompts),
-        "enabled": prompt_matcher._enabled,
-    }
-
-
-async def _handle_prompts_get(
-    prompt_matcher: PromptMatcher,
-    arguments: dict[str, Any]
-) -> dict[str, Any]:
-    """Handle kiro_prompts_get tool call - get a specific prompt."""
-    name = arguments.get("name", "")
-    
-    prompt = prompt_matcher.loader.get_prompt(name)
-    if prompt:
-        return {
-            "found": True,
-            "prompt": {
-                **prompt.to_dict(),
-                "content": prompt.content,
-            }
-        }
-    else:
-        return {
-            "found": False,
-            "error": f"Prompt '{name}' not found",
-        }
 
 
 # Keep the old class for backward compatibility

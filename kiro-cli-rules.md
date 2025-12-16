@@ -206,18 +206,29 @@ Without explicit instruction, `kiro-cli` may default to simple grep/find which:
 
 **The Augment codebase retrieval tool provides semantic understanding beyond simple grep/search, finding contextually relevant code even with different naming conventions.**
 
-### 4. MANDATORY: Web Search First Principle
+### 4. Web Search: Instruct kiro-cli to Use Brave Search
 
-> **MANDATORY**: When the developer's request requires external information, YOU MUST search the web FIRST before calling `kiro_chat`. `kiro-cli` CANNOT browse the web - you are the ONLY source of external information.
+> **IMPORTANT**: When the developer's request requires external information (documentation, APIs, libraries, error solutions, etc.), instruct `kiro-cli` to use **Brave Search MCP tools** for web search.
 
-#### When External Information is Needed
-If the developer's request requires external information (documentation, APIs, libraries, error solutions, etc.):
+#### Brave Search MCP Tools Available to kiro-cli
+- `mcp_brave_search_brave_web_search` - General web search
+- `mcp_brave_search_brave_news_search` - News and recent articles
+- `mcp_brave_search_brave_video_search` - Video content
+- `mcp_brave_search_brave_image_search` - Image search
+- `mcp_brave_search_brave_local_search` - Local business search (Pro plan only)
+- `mcp_brave_search_brave_summarizer` - AI-generated summaries (Pro plan only)
 
-1. **Search FIRST**: Use your web search capabilities to find relevant information
-2. **Synthesize**: Extract key information from search results
-3. **Include in message**: Pass the synthesized information to `kiro_chat` as context
+#### ⚠️ CRITICAL: Rate Limit Warning
+> **Brave Search API has a rate limit of 1 request per second.**
 
-#### Types of Requests That REQUIRE Web Search:
+When instructing `kiro-cli` to use Brave Search, **ALWAYS include the rate limit warning**:
+
+```
+"IMPORTANT: When using Brave Search, respect the rate limit of 1 request per second.
+Do NOT make multiple search requests in parallel. Wait 1 second between each search call."
+```
+
+#### Types of Requests That Need Web Search:
 - Integration with external APIs (Stripe, Twilio, AWS, etc.)
 - Using new libraries or frameworks
 - Error messages that may have known solutions
@@ -225,20 +236,41 @@ If the developer's request requires external information (documentation, APIs, l
 - Documentation for third-party services
 - Version-specific features or breaking changes
 
-**Example Workflow:**
-```
-Developer: "Integrate Stripe payment API"
+#### ALWAYS Include in kiro_chat Messages
+For tasks requiring external information, your message to `kiro_chat` MUST include:
 
-1. YOU search web for "Stripe API integration latest docs"
-2. YOU extract: endpoints, authentication method, code examples
-3. YOU call kiro_chat with:
-   "Integrate Stripe payment. Here's the current API info:
-    - Auth: Bearer token in header
-    - Endpoint: https://api.stripe.com/v1/...
-    - Example: [code snippet from docs]"
+```
+"Use Brave Search (mcp_brave_search_brave_web_search) to search for [specific topic].
+⚠️ RATE LIMIT: Brave Search allows only 1 request per second. 
+If multiple searches are needed, wait 1 second between each call. Do NOT search in parallel."
 ```
 
-**CRITICAL**: If you skip web search when external information is needed, `kiro-cli` will either fail or produce outdated/incorrect results. ALWAYS search first for external dependencies.
+#### Example Messages
+
+**BAD (no Brave Search instruction):**
+```
+"Integrate Stripe payment API into the project"
+```
+
+**GOOD (explicit Brave Search instruction with rate limit):**
+```
+"Integrate Stripe payment API into the project.
+Use Brave Search (mcp_brave_search_brave_web_search) to find the latest Stripe API documentation and integration examples.
+⚠️ RATE LIMIT: Brave Search allows only 1 request per second. Wait 1 second between searches."
+```
+
+**GOOD (multiple searches needed):**
+```
+"Set up OAuth2 authentication with Google and Facebook.
+Use Brave Search to find documentation for both providers.
+⚠️ RATE LIMIT: Brave Search allows only 1 request per second.
+Search Google OAuth2 first, wait 1 second, then search Facebook OAuth2. Do NOT search in parallel."
+```
+
+#### Why This Matters
+- `kiro-cli` has access to Brave Search MCP tools but may not use them unless instructed
+- Without rate limit warning, `kiro-cli` may make parallel requests and hit API limits
+- Explicit instructions ensure `kiro-cli` gets the external information needed for the task
 
 ### 5. Tool Execution
 
@@ -251,26 +283,13 @@ Use the `kiro_chat` tool with:
 #### Core Tools
 - `kiro_session_create` - Create a new session with working directory
 - `kiro_session_list` - List all active sessions
-- `kiro_session_switch` - Switch to a specific session
 - `kiro_session_end` - End a session
 - `kiro_chat` - Send chat message and get AI response
 - `kiro_command` - Execute kiro-cli commands
 
-#### Session Management
-- `kiro_session_clear` - Clear kiro-cli session file (.kiro/session.json)
-- `kiro_session_save` - Save session to file using /save command
-
 #### Async Operations (Advanced)
 - `kiro_chat_async` - Start async chat task for long-running operations
 - `kiro_task_status` - Poll async task status and get partial results
-- `kiro_task_cancel` - Cancel running async task
-- `kiro_task_list` - List active async tasks
-
-#### Monitoring
-- `kiro_agents_list` - List available agents
-- `kiro_history` - Get conversation history
-- `kiro_history_clear` - Clear conversation history
-- `kiro_pool_stats` - Get process pool statistics
 
 ### 6. Automation and Follow-up
 

@@ -3,6 +3,7 @@
 from typing import Any
 
 # Tool definitions following MCP specification
+# Streamlined to 7 essential tools
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "kiro_chat",
@@ -58,20 +59,6 @@ TOOLS: list[dict[str, Any]] = [
         }
     },
     {
-        "name": "kiro_session_switch",
-        "description": "Switch to a specific session",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "session_id": {
-                    "type": "string",
-                    "description": "The session ID to switch to"
-                }
-            },
-            "required": ["session_id"]
-        }
-    },
-    {
         "name": "kiro_session_end",
         "description": "End a kiro-cli session",
         "inputSchema": {
@@ -87,7 +74,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "kiro_command",
-        "description": "Execute a kiro-cli command (e.g., /mcp, /help)",
+        "description": "Execute a kiro-cli command (e.g., /mcp, /help, /clear, /save, /agents)",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -101,45 +88,6 @@ TOOLS: list[dict[str, Any]] = [
                 }
             },
             "required": ["command"]
-        }
-    },
-    {
-        "name": "kiro_agents_list",
-        "description": "List available custom agents",
-        "inputSchema": {
-            "type": "object",
-            "properties": {}
-        }
-    },
-    {
-        "name": "kiro_history",
-        "description": "Get conversation history for a session",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "session_id": {
-                    "type": "string",
-                    "description": "Optional session ID"
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum number of messages to return",
-                    "default": 50
-                }
-            }
-        }
-    },
-    {
-        "name": "kiro_history_clear",
-        "description": "Clear conversation history for a session",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "session_id": {
-                    "type": "string",
-                    "description": "Optional session ID"
-                }
-            }
         }
     },
     {
@@ -177,99 +125,6 @@ TOOLS: list[dict[str, Any]] = [
                 }
             },
             "required": ["task_id"]
-        }
-    },
-    {
-        "name": "kiro_task_cancel",
-        "description": "Cancel a running async task",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "task_id": {
-                    "type": "string",
-                    "description": "The task ID to cancel"
-                }
-            },
-            "required": ["task_id"]
-        }
-    },
-    {
-        "name": "kiro_task_list",
-        "description": "List active async tasks",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "session_id": {
-                    "type": "string",
-                    "description": "Optional filter by session ID"
-                },
-                "include_done": {
-                    "type": "boolean",
-                    "description": "Include completed/failed tasks",
-                    "default": False
-                }
-            }
-        }
-    },
-    {
-        "name": "kiro_pool_stats",
-        "description": "Get process pool statistics for performance monitoring",
-        "inputSchema": {
-            "type": "object",
-            "properties": {}
-        }
-    },
-    {
-        "name": "kiro_session_clear",
-        "description": "Clear kiro-cli session history in working directory (deletes .kiro/session.json)",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "session_id": {
-                    "type": "string",
-                    "description": "Optional MCP session ID"
-                }
-            }
-        }
-    },
-    {
-        "name": "kiro_session_save",
-        "description": "Save current kiro-cli session to a file using /save command",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "session_id": {
-                    "type": "string",
-                    "description": "Optional MCP session ID"
-                },
-                "path": {
-                    "type": "string",
-                    "description": "Path to save session (relative to working directory)"
-                }
-            },
-            "required": ["path"]
-        }
-    },
-    {
-        "name": "kiro_prompts_list",
-        "description": "List all available prompts for AI-powered prompt selection",
-        "inputSchema": {
-            "type": "object",
-            "properties": {}
-        }
-    },
-    {
-        "name": "kiro_prompts_get",
-        "description": "Get details of a specific prompt by name",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Name of the prompt to retrieve"
-                }
-            },
-            "required": ["name"]
         }
     }
 ]
