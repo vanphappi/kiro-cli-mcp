@@ -218,7 +218,7 @@ Without explicit instruction, `kiro-cli` may default to simple grep/find which:
 - `mcp_brave_search_brave_local_search` - Local business search (Pro plan only)
 - `mcp_brave_search_brave_summarizer` - AI-generated summaries (Pro plan only)
 
-#### ⚠️ CRITICAL: Rate Limit Warning
+#### CRITICAL: Rate Limit Warning
 > **Brave Search API has a rate limit of 1 request per second.**
 
 When instructing `kiro-cli` to use Brave Search, **ALWAYS include the rate limit warning**:
@@ -241,7 +241,7 @@ For tasks requiring external information, your message to `kiro_chat` MUST inclu
 
 ```
 "Use Brave Search (mcp_brave_search_brave_web_search) to search for [specific topic].
-⚠️ RATE LIMIT: Brave Search allows only 1 request per second. 
+RATE LIMIT: Brave Search allows only 1 request per second. 
 If multiple searches are needed, wait 1 second between each call. Do NOT search in parallel."
 ```
 
@@ -256,14 +256,14 @@ If multiple searches are needed, wait 1 second between each call. Do NOT search 
 ```
 "Integrate Stripe payment API into the project.
 Use Brave Search (mcp_brave_search_brave_web_search) to find the latest Stripe API documentation and integration examples.
-⚠️ RATE LIMIT: Brave Search allows only 1 request per second. Wait 1 second between searches."
+RATE LIMIT: Brave Search allows only 1 request per second. Wait 1 second between searches."
 ```
 
 **GOOD (multiple searches needed):**
 ```
 "Set up OAuth2 authentication with Google and Facebook.
 Use Brave Search to find documentation for both providers.
-⚠️ RATE LIMIT: Brave Search allows only 1 request per second.
+RATE LIMIT: Brave Search allows only 1 request per second.
 Search Google OAuth2 first, wait 1 second, then search Facebook OAuth2. Do NOT search in parallel."
 ```
 
